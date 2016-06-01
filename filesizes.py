@@ -1,12 +1,18 @@
 import os
 import math
 import datetime
-#import matplotlib
+import matplotlib
+import paramiko
 
-
-
+ssh= paramiko.SSHClient()
+transport=paramiko.Transport(("cs.appstate.edu", 22))
+transport.connect(username="bee", password="cs.13,bee")
+ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+ftp = paramiko.SFTPClient.from_transport(transport)
+writer = open('prevent.txt', 'a')
 def ent(file):
     totalent = 0.0
+    global writer
     #makes and or checks file so we dont have to recalculate entropy
     if os.path.isfile(file):
         if os.path.isfile('prevent.txt'):
@@ -18,21 +24,23 @@ def ent(file):
                     print(var)
                     var = reader.readline()
                     totalent = float(var)
+              
+                    print('filesize for file {file}  is {size}:'.format(file = file, size=os.path.getsize(file)))
                     print('entropy for file {file}:'.format(file = file))
                     print(str(totalent))
-                    return
+                    return totalent
             writer.write(file)
             writer.write('\n')
             reader.close()
-        elif os.path.isfile(file) :
+        else :
             writer = open("prevent.txt","w")
             writer.write(file)
             writer.write('\n')
    
         
-    
+    path="temp/" + file 
     #puts file in byte array
-    fread = open(file, 'rb')
+    fread = open(path, 'rb')
     barr = bytearray(fread.read())
    
     fread.close()
@@ -53,41 +61,52 @@ def ent(file):
     print (totalent)
     print('The minimum file size possible given this entropy is:')
     print((totalent * fsize)/8)
+    
     writer.write('\n')
     writer.write(str(totalent) + '\n')
-    writer.close()
+    
+    return totalent
 
 def freq(array):
     #get frequency of bytes
     frequencies= [0] *256
-    print(frequencies)
+   
     for i in array:
        frequencies[i] += 1
-    print(frequencies)
+  
     return frequencies
-    
-#unused
-def getFilesize(file, path=None):
-    print(os.path)
-    print(os.path.abspath(path))
-    print(os.listdir(path))
-    if file in os.listdir(path):
-        print (os.path.getsize(file))
-    elif os.path.isfile(path + file):
-        print('wow!')
 
-#unused
-def testsssss():
-    for file in sorted(os.listdir("aeiou")):
-        path = "aeiou/" + file
-        s = file , os.path.getsize(path)
-        print(s)
+def filemover(filepath):
+    #if not os.path.isdir("temp"):
+     #   os.makedirs("temp")
+    for file in os.listdir("temp"):
+        if file.endswith(".h264"):
+            os.remove("temp/" + file)
+    for file in ftp.listdir():
+        ftp.get(os.path.join(filepath, file),os.path.join( "temp", file))
+    #filelist=filter(os.path.isfile, os.listdir("temp"))
+    #print (filelist)
+    #filelist = [os.path.join("/temp", f) for f in filelist]
+    #print(filelist)
+    #filelist.sort(key=lambda x: os.path.getmtime(x))
+    for file in ftp.listdir():
+        ent(file) 
 
-if __name__ == '__main__':
-    ent('19-02-17.h264')
-    ent('08-59-38.h264')
-   # for file in sorted(os.listdir("aeiou")):
-    #    path = "aeiou/" + file
-    #    s = file , os.path.getsize(path)
-     #   print(s)
+def plotter(date):
+    return
+
+if __name__ =="__main__":
  
+    pi = input('input the number of the raspberry pi you want files from:    ')
+    print('connecting to rpi{pi}'.format(pi=pi))
+    p = "/usr/local/bee/beemon/rpi{pi}".format(pi=pi)
+    ftp.chdir(p)
+    for i in sorted(ftp.listdir()):
+        lstatout=str(ftp.lstat(i)).split()[0]
+        if 'd' in lstatout:
+            print (i)
+    date= input("select a date from this list    ")
+    p = "/usr/local/bee/beemon/rpi{pi}/{date}/video".format(pi=pi, date=date)
+    ftp.chdir(p)
+    filemover(p)
+    writer.close() 
