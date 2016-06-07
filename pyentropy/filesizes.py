@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import paramiko
 import time
 import OpenSSL
-import sklearn.preprocessing
+from sklearn import preprocessing
 import matplotlib.dates as mpld
 from PIL import Image
 
@@ -19,7 +19,7 @@ ftp = paramiko.SFTPClient.from_transport(transport)
 def ent(file):
     #calculated the shannon entropy for a given file- this is the total amount of "randomness" that we see in a file that we can measure by looking and predicting the values of each pixel in the video frame.
     totalent = 0.0
-    print(file)    
+    
     #makes and or checks file so we dont have to recalculate entropy
     #needs work / is useless until we can store by date
    # if os.path.isfile(file):
@@ -49,16 +49,19 @@ def ent(file):
    
         
     path="temp/" + file 
-   
+    print("Calculating frames for file {file}...".format(file=file))
     owd = os.getcwd()  
-    getframe = "ffmpeg -i " + path + " -s 640x480 -f image2  -q:v 2 ent/image%d.jpg"
+    getframe = "ffmpeg -i " + path + " -s 640x480 -f image2 -hide_banner -nostats -q:v 2 ent/image%d.jpg"
     print(getframe)
     imgpath = "ent/"
     
     os.system(getframe)
     os.chdir(imgpath)
+    divcount = 0
+    print("\nCalculating entropy for file {file}...".format(file=file))
     for c,img in enumerate(os.listdir(os.getcwd())):
         if c % 10 == 0:
+            divcount += 1
             totalent += videoent(img) 
   
            
@@ -71,7 +74,7 @@ def ent(file):
     print('filesize for file {file}:'.format(file = file))
     print(fsize)
     #average total entropy
-    totalent = totalent/1799
+    totalent = totalent/divcount
     print ('entropy for file {file}:'.format(file = file))
     print (totalent)
     
@@ -79,7 +82,8 @@ def ent(file):
 
     
     return totalent
-
+#calculating entropy of one image from the video- credits to 
+#http://code.activestate.com/recipes/577476-shannon-entropy-calculation/#c3
 def videoent(img):
 
     im = Image.open(img)
@@ -96,7 +100,7 @@ def videoent(img):
         return ent
               
 
-def filemover(filepath):
+def filemover(filepath, date):
    
     #checks for temp folder and deletes contents to move all files from that date into it.
     for file in os.listdir("temp"):
@@ -104,6 +108,7 @@ def filemover(filepath):
             os.remove("temp/" + file)
     filelist = []
     #makes a list of file names for sorting as well as a corresponding list for entropies
+    print("Gathering files ......")
     for file in ftp.listdir():
         filelist.append(file)    
         ftp.get(os.path.join(filepath, file),os.path.join( "temp", file))
@@ -111,8 +116,9 @@ def filemover(filepath):
     entlist=[]   
     filesizelist = []
     filelist = sorted(filelist)
-    print(os.getcwd())
-    path = "/home/jon/pyentropy/temp/" 
+    
+    path = "temp/" 
+    
     for file in filelist:
         fp = os.path.join(path, file)
         filesizelist.append(os.path.getsize(fp))
@@ -129,24 +135,37 @@ def filemover(filepath):
         print(t)
        
         plotlist.append(t)
-    xtimes = [datetime.datetime.strptime(str(int(times)), '%H%M%S') for times in plotlist] 
-    print (xtimes)    
+
+       
     print(filelist)
     print(plotlist)
     
-    plotter(plotlist, entlist, filesizelist)
-def plotter(filelist, entlist, fsizelist):
+    plotter(plotlist, entlist, filesizelist, date)
+def plotter(filelist, entlist, fsizelist, date):
     #gets the file and entropy lists and plots the data to a neat line graph
-    xtimes = [datetime.datetime.strptime(str(int(times)), '%H%M%S') for times in filelist]
-    plt.plot(fsizelist, entlist, marker='o', color = 'green')
-    plt.plot(xtimes, entlist, marker = 'o')
-    plt.xlabel('Time')
-    plt.ylabel('Entropy')
-    plt.title('Entropy over time for date')
+    print("Would you like your graph to show:")
+    print("1) entropy and filesize values over time")
+    print("2) a comparison of entropy vs filesize")
     
-    plt.show()
-    return
-
+    plotselect = input("Please select a number:   ")
+    fmin = min(fsizelist)
+    fmax = max(fsizelist)
+    xtimes = [datetime.datetime.strptime(str(int(times)), '%H%M%S') for times in filelist]
+    normalized_fsize = [((sizes - fmin)/(fmax-fmin)) + 7 for sizes in fsizelist]
+    if plotselect == "1":
+        fline=plt.plot(xtimes, normalized_fsize, marker='o', color = 'green', label = "filesize")
+        eline=plt.plot(xtimes, entlist, marker = 'o', label="entropy")
+        plt.xlabel('Time')
+        plt.legend(loc=4)
+        plt.title('Entropy and Filesize Over Time for {date}'.format(date=date))
+        plt.show()
+        return
+    if plotselect == "2":
+        plt.plot(entlist, normalized_fsize, marker = 'o')
+        plt.xlabel('Entropy')
+        plt.ylabel('Filesize')
+        plt.title('Filesize and Entropy Comparison for {date}'.format(date=date))
+        plt.show()
 if __name__ =="__main__":
  
     pi = input('input the number of the raspberry pi you want files from:    ')
@@ -160,5 +179,5 @@ if __name__ =="__main__":
     date= input("select a date from this list    ")
     p = "/usr/local/bee/beemon/rpi{pi}/{date}/video".format(pi=pi, date=date)
     ftp.chdir(p)
-    filemover(p)
+    filemover(p, date)
     
