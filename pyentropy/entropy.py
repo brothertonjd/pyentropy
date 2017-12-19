@@ -3,10 +3,12 @@ from math import log
 import datetime
 import matplotlib.pyplot as plt
 import paramiko
+from writeTo import writeTo
 import numpy as npy
 from subprocess import call
 from PIL import Image
-
+from scipy import stats
+from HighLowEntImg import HighLowEnt
 
 answer = None
 date = None
@@ -23,17 +25,24 @@ transport=paramiko.Transport((host, int(port)))
 transport.connect(username= usern, password= passw)
 ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 ftp = paramiko.SFTPClient.from_transport(transport)
-
+widg = None
+calcSnr = False
 #calculating entropy if the user has selected to choose from local files. Skips the step of getting files from the server
 def localent(filelist, filepath):
+    global calcSnr
+    snrCheck =input("Do you want to calculate snr?(y/n)")
+    if snrCheck in ("y","Y","yes", "Yes", "YES"):
+        calcSnr = True
+    print(calcSnr)
     entropylist=[]
-
+    snrlist = []
     #creates a temporary directory for storing images of videos
     print(os.getcwd())
     if not os.path.exists("ent"):
             os.makedirs("ent")
     for file in filelist:
         totalent = 0.0
+        totalsnr = 0.0
         divcount=0
         owd = os.getcwd() #brings us back to the current working directory for filesize calculation
         ptemp = filepath +file 
@@ -54,24 +63,28 @@ def localent(filelist, filepath):
                 #only calculates entropy for every 16th image, this number can be adjusted for speed, but 16 is pretty accurate.
                 if c % 16 != 17:
                     divcount += 1
-                    totalent += videoent(img) 
+                    vident, vidsnr = videoent(img)
+                    totalent += vident
+                    totalsnr += vidsnr
+                     
         elif len(filelist) == 1:
             #Instead of getting entropy for every file, we use the entropy list to get the specific entropies for all of the images in a single file. 
             
-            for img in os.listdir(os.getcwd()):
+            for img in sorted(os.listdir(os.getcwd())):
                 #gets video entropy for the video
-                entropylist.append(videoent(img))
+                print(img)
+                vident, vidsnr = videoent(img)
+                entropylist.append(vident)
+                snrlist.append(vidsnr)
             for x in entropylist:
                 
                 totalent= totalent + x
             print(totalent)
-            print(os.getcwd())
-            print(len(entropylist))
             divcount = len(list(f for f in os.listdir('.')))
             print(divcount)
             print("Average entropy for file {file}:".format(file=file))
             print(totalent/divcount)
-            return entropylist
+            return entropylist, snrlist
 #mark a
         os.chdir(owd)#unsure what this does tbh...
         #fsize = os.path.getsize(ptemp)
@@ -80,29 +93,37 @@ def localent(filelist, filepath):
         
         #average total entropy
         totalent = totalent/divcount
+        totalsnr = totalsnr/divcount
         print ('average entropy for file {file}:'.format(file = file))
         print (totalent)
+        print("Average snr for file {file}:".format(file=file))
+        print(totalsnr)
         entropylist.append(totalent)
-
+        snrlist.append(totalsnr)
     #removes temporary folder for video images
     for f in os.listdir("ent"):
         if f.endswith(".jpg"):
             os.remove("ent/"+f)
-    return entropylist
+    return entropylist, snrlist
         
         
         
 def ent(filelist):
+    global calcSnr
     entropylist = []
-    
+    snrlist = []
+    snrCheck =input("Do you want to calculate snr?(y/n)")
+    if snrCheck in ("y","Y","yes", "Yes", "YES"):
+        calcSnr = True
+    print(calcSnr)
     #calculated the shannon entropy for a given file- this is the total amount of "randomness" that we see in a file that we can measure by looking and predicting the values of each pixel in the video frame.
     for file in filelist:
         totalent = 0.0    
-        
+        totalsnr = 0.0 
         path="temp/" + file 
         print("Calculating frames for file {file}...".format(file=file))
         owd = os.getcwd()
-        getframe = "ffmpeg -i " + path+ " -s 640x480 -vf format=gray -f image2 -hide_banner -c:v mjpeg -q:v 2  ent/image%d.jpg"
+        getframe = "ffmpeg -i " + path+ " -s 640x480 -vf format=gray -f image2 -hide_banner -c:v mjpeg -q:v 2  ent/image%04d.jpg"
         imgpath = "ent/"
         call(getframe, shell=True)
         os.chdir(imgpath)
@@ -114,27 +135,41 @@ def ent(filelist):
                 #gets every 16th image for speed purposes
                 if os.path.isfile(img):
                     divcount += 1
-                    print(divcount)
-                    totalent += videoent(img) 
+                    vident, vidsnr = videoent(img)
+                    totalent += vident
+                    if calcSnr:
+                        totalsnr += vidsnr
         elif len(filelist) == 1:
             #Instead of getting entropy for every file, we use the entropy list to get the specific entropies for all of the images in a single file. 
             print(os.getcwd())            
-            for img in os.listdir(os.getcwd()):
-                print("did we get here")
-                entropylist.append(videoent(img))
+            for img in sorted(os.listdir(os.getcwd())):
+                print(img)
+                vident, vidsnr = videoent(img)
+                entropylist.append(vident)
+                if calcSnr:
+                    snrlist.append(vidsnr)
             divcount = len(entropylist)
             print(entropylist)
+            HighLowEnt(entropylist)
             for x in entropylist:
                 totalent= totalent + x
+            if calcSnr:
+                for x in snrlist:
+                    totalsnr = totalsnr + x
             print(totalent)
+            if totalsnr > 0:
+                print(totalsnr)
             print(divcount)
             print("Average entropy for file {file}:".format(file=file))
             print(totalent/divcount)
+            if totalsnr > 0:
+                print("Average snr for file {file}:".format(file=file))
+                print(totalsnr/divcount)
             print(os.getcwd())
             #for f in os.listdir("."):
              #   if f.endswith(".jpg"):
               #      os.remove(f)
-            return entropylist
+            return entropylist, snrlist
         
         
         os.chdir(owd)
@@ -145,38 +180,43 @@ def ent(filelist):
         #print(fsize)
     #average total entropy
         totalent = totalent/divcount
+        if totalsnr > 0:
+            totalsnr = totalsnr/divcount
         print ('average entropy for file {file}:'.format(file = file))
         print (totalent)
         entropylist.append(totalent)
+        if totalsnr > 0:
+            snrlist.append(totalsnr)
         
 
     #for f in os.listdir("ent"):
 	    #if f.endswith(".jpg"):
 		    #os.remove("ent/"+f)
-    return entropylist
+    return entropylist, snrlist
 #calculating entropy of one image from the video- credits to 
 #http://code.activestate.com/recipes/577476-shannon-entropy-calculation/#c3
 
 def videoent(img):
-    avgent=0.0
+    global calcSnr
     im = Image.open(img)
+    num = 0
+    if calcSnr:
+        num = stats.signaltonoise(im, None, 0)
+        print(num)
     rgbHistogram = im.histogram()
-    #Since our image is grayscale, we can test for only 256- the gradient for grayscale color
-    for rgb in range(3):
-        totalPixels = sum(rgbHistogram[rgb *256: (rgb + 1) * 256])
-        ent = 0.0
-        for col in range(rgb * 256, (rgb +1) * 256):
-            freq = float(rgbHistogram[col])/ totalPixels
-            if freq > 0:
-                ent = ent + freq * log(freq, 2)
-        ent = -ent
-        avgent += ent
-        print(ent)
-    return avgent/3
+    totalPixels = sum(rgbHistogram[0:256])
+    ent = 0.0
+    for col in range(0, 256):
+        freq = float(rgbHistogram[col])/ totalPixels
+        if freq > 0:
+            ent = ent + freq * log(freq, 2)
+    ent = -ent
+    return ent,num
 
 
 
 def localmover(fp):
+    global widg
     answer = input("Would you like to calculate one single file?(y/n)   ")
     if answer in ('y', 'Y', 'yes', 'Yes'):
         answer = True
@@ -197,13 +237,13 @@ def localmover(fp):
                 filelist.append(file)
         filelist = sorted(filelist)
     entlist = []
+    snrlist= []
     filesizelist= []
-    entlist = localent(filelist, fp)
+    entlist, snrlist = localent(filelist, fp)
     for file in filelist:
         fip = os.path.join(fp, file)
         filesizelist.append(os.path.getsize(fip))
     fylist = [os.path.splitext(each)[0] for each in filelist]
-    print(fylist)
     plotlist = []
     for file in fylist:
         h,m,s=file.split("-")
@@ -213,13 +253,14 @@ def localmover(fp):
         plotlist.append(t)
 
 
-    print(filelist)
-    print(plotlist)
-
-    plotter(fylist, entlist, filesizelist)
+    print(len(snrlist))
+    if widg == 1:
+        return fylist, entlist, filesizelist, snrlist
+    plotter(fylist, entlist, filesizelist, snrlist)
 
 #for remote selection
 def filemover(filepath, date):
+    global widg
     filelist = []
     #checks for temp folder and deletes contents to move all files from that date into it.
     for file in os.listdir("temp"):
@@ -256,8 +297,8 @@ def filemover(filepath, date):
         
     entlist=[]   
     filesizelist = []
-    
-    entlist= ent(filelist) 
+    snrlist = []
+    entlist, snrlist = ent(filelist) 
     path = "/home/jon/pyentropy/pyentropy/temp/" 
     
     print(os.getcwd())
@@ -276,6 +317,7 @@ def filemover(filepath, date):
         h,m,s=file.split("-")
         t = h + m + s
         plotlist.append(t)
+    print(plotlist)
     entcount = 0
     totalentday = 0
     #total average entropy for the whole day
@@ -285,9 +327,17 @@ def filemover(filepath, date):
     
     print("Entropy for " + date + ":")
     print(totalentday/entcount)
-    plotter(fylist, entlist, filesizelist)
-    
-def plotter(filelist, entlist, fsizelist):
+    print(widg)
+    print(fylist)
+    print(entlist)
+    print(filesizelist)
+    print(snrlist)
+    if widg == 1:
+         return fylist, entlist, filesizelist, snrlist
+    plotter(fylist, entlist, filesizelist, snrlist)
+    return
+
+def plotter(filelist, entlist, fsizelist, snrlist):
     global date
     global pi
     #gets the file and entropy lists and plots the data to a neat line graph
@@ -295,11 +345,10 @@ def plotter(filelist, entlist, fsizelist):
     
     ax = fig.add_subplot(111)
     plotlist = []
-    for file in filelist:
-        h,m,s=file.split("-")
+    for fyle in filelist:
+        h,m,s=fyle.split("-")
         t = h + m + s
         plotlist.append(t)
-
     #basically checks if it's a single file
     if len(filelist) > 1: #if not a single file
         while True: 
@@ -313,37 +362,47 @@ def plotter(filelist, entlist, fsizelist):
             else:
                 break
         pat = os.getcwd() # for local file path
-        xtimes = []
-        for times in plotlist:
-        
-            xtimes.append(datetime.datetime.strptime(str(int(times)), '%H%M%S')) #changes a concatenated string to a datetime
+        laziness = []
+        for x in plotlist:
+            laziness.append(datetime.datetime.strptime(str(int(x)), '%H%M%S'))
+        xtimes = npy.array([datetime.datetime.strptime(times,'%H-%M-%S').time() for times in filelist])#changes a concatenated string to a datetime
+        xtimes = [str(time) for time in xtimes]
         count = list(range(len(filelist)))
         print(xtimes)
+        print(laziness)
+        print(pat)
         #lists the files, entropies, and filesizes for each file
-        enfsize=sorted(list(zip(count,filelist, fsizelist, entlist)))
-        for (g,a,b,c) in enfsize:
-            print("",g,"    file:     ", a,"     filesize:     ",b,"     entropy:     ",c)    
+        enfsize=sorted(list(zip(count,filelist, fsizelist, entlist, snrlist)))
+        print(enfsize)
+        print(date)
+        bloop = writeTo(enfsize, pat, date)
+        bloop.writeTo(enfsize, pat, date)
+        for (g,a,b,c, d) in enfsize:
+                print("",g,"    file:     ", a,"     filesize:     ",b,"     entropy:     ",c,"     snr:    ",d)
         #a selector to be used when clicking on a graph. You can click and it will show current coordinates of the click
         print("select a point on the graph, the point will provide information as follows: entropy,filesize,time")
         def onpick3(event):
             ind = event.ind
             print ('onpick3 scatter:', ind, npy.take(entlist, ind), npy.take(fsizelist, ind), npy.take(xtimes, ind)) 
-
+        select1xaxis = [int(i) for i in plotlist]
         #entropy and filesize values over time
         if plotselect == "1":
             fmin = min(fsizelist)
             fmax = max(fsizelist)
             #normalized to provide a better looking graph that helps the user correlate changes in filesizes and entropies of the same files
             normalized_fsize = [((sizes - fmin)/(fmax-fmin)) + 7 for sizes in fsizelist]
-            fline=ax.plot(xtimes, normalized_fsize, marker='o', color = 'green', label = "filesize")
-            eline=ax.plot(xtimes, entlist, marker = 'o', label="entropy", picker=True)
+            fline=ax.plot(laziness, normalized_fsize, marker='o', color = 'green', label = "filesize")
+            plt.xticks(laziness, xtimes, rotation=90)
+            eline=ax.plot(laziness, entlist, marker = 'o', label="entropy", picker=True)
+            if len(snrlist):
+                sline = ax.plot(laziness, snrlist, marker = 'o', color='red', label='snr')
             
             plt.xlabel('Time')
             plt.legend(loc=4)
             if pi != None:
-                plt.title('Entropy and Filesize Over Time for {date} using {pi}'.format(date=date, pi=pi))
+                plt.title('Entropy, SNR and Filesize Over Time for {date} using {pi}'.format(date=date, pi=pi))
             else:
-                plt.title('Filesize and Entropy Over Time for local path {pat}'.format(pat = pat))
+                plt.title('Filesize, SNR and Entropy Over Time for local path {pat}'.format(pat = pat))
             fig.canvas.mpl_connect('pick_event', onpick3)
             plt.show()
             return
@@ -368,7 +427,8 @@ def plotter(filelist, entlist, fsizelist):
         print("filesize: ")
         print(fsizelist[0]) 
         ax.scatter(timelen, entlist, marker = 'o', color='black')
-        
+        if len(snrlist):
+            ax.scatter(timelen, snrlist, marker='o', color='blue')
         plt.xlabel('Time(seconds)')
         plt.ylabel('Entropy values for each image')
         fe = filelist[0]
@@ -376,10 +436,12 @@ def plotter(filelist, entlist, fsizelist):
         if pi != None: plt.title('Entropy values over time for {pi} , date: {date}, file: {file}'.format(date = date, file = fe, pi = pi ))
         else : plt.title('Entropy values over time for file {file}'.format(date = date,file = fe))
         plt.show()
-        return    
-if __name__ =="__main__":
+        return
+
+def main(FromWidget = 0):
+    global widg
     print("Would you want to calculate files locally or remotely?")
-    
+    widg = FromWidget    
     fileget = input("Please choose 'local' or 'remote'.    ")
     if fileget in ('remote', 'Remote', 'REMOTE'):
         ftp.chdir("/usr/local/bee/beemon")
@@ -419,7 +481,7 @@ if __name__ =="__main__":
                 continue
             else:
                 break
-        filemover(p, date)
+        return filemover(p, date)
     elif fileget in ('local', 'Local', 'LOCAL'):
         print('Please copy or type the filepath of the directory you would like to use.')
         while True:
@@ -455,6 +517,7 @@ if __name__ =="__main__":
         os.chdir(p)
         print(os.getcwd())
         localmover(p)
-       
+if __name__ == "__main__":
+    main()
     
-import os
+
